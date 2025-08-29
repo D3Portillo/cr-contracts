@@ -35,7 +35,11 @@ abi SimplePoolContract {
 
   // Stop event + distribute rewards if possible
   #[storage(read, write)]
-  fn stop_challenge(winner_riot_id: u16, disburse_rewards: bool, fees_bps_1000: u8);
+  fn stop_challenge();
+
+  // Send payouts to event winners (backers)
+  #[storage(read, write)]
+  fn relay_payouts(winner_riot_id: u16, fees_bps_1000: u8);
 
   // To be used in case of assets locked (edge case)
   #[storage(read, write)]
@@ -99,8 +103,13 @@ storage {
 
 
 #[storage(read)]
-fn _only_active_pool() {
+fn _when_active() {
   require(storage.is_active.read(), "InactivePool");
+}
+
+#[storage(read)]
+fn _when_not_active() {
+  require(!storage.is_active.read(), "OnlyWhenNotActive");
 }
 
 #[storage(read)]
@@ -124,21 +133,32 @@ impl SimplePoolContract for Contract {
   #[storage(read, write)]
   fn start_challenge() {
     only_owner();
+    _when_not_active();
 
-    require(!storage.is_active.read(), "PoolAlreadyActive");
     storage.is_active.write(true);
     // Implementation for starting a challenge
   }
 
   #[storage(read, write)]
-  fn stop_challenge(winner_riot_id: u16, disburse_rewards: bool, fees_bps_1000: u8) {
+  fn stop_challenge() {
+    only_owner();
+    _when_active();
+
+    // Mark pool as inactive
+    storage.is_active.write(false);
+  }
+
+  #[storage(read, write)]
+  fn relay_payouts(winner_riot_id: u16, fees_bps_1000: u8) {
     // Implementation for stopping a challenge
     // NOTE: 1bps = 0.1% (1 / 1_000)
 
     only_owner();
-    _only_active_pool();
 
-    // We reward the users who backed the winning riot
+    // We can only relay payouts when pool is not active
+    _when_not_active();
+
+    // We reward back to users who backed the winning riot
     // by distributing the collected fees proportionally.
     // A fee_bps is collected and sent to OWNER wallet.
 
@@ -171,11 +191,8 @@ impl SimplePoolContract for Contract {
       }
     }
 
-    if (disburse_rewards) {
-      // Update total rewards
-      storage.rewards_disbursed.write(reward_amount);
-    }
-
+    // Update total rewards
+    storage.rewards_disbursed.write(reward_amount);
     // Mark pool as inactive
     storage.is_active.write(false);
     // Store winner riot id
@@ -198,7 +215,7 @@ impl SimplePoolContract for Contract {
   #[storage(read, write), payable]
   fn deposit_for_riot(riot_id: u16) -> Identity {
     // Ensure deposits are done only when active
-    _only_active_pool();
+    _when_active();
 
     // We expect deposit token value to be USDC/USDT
     // For now Native is fine
@@ -413,7 +430,8 @@ fn fails_when_start_and_stopping_challenge() {
 
   assert_eq(caller.get_pool_backers(), 0);
 
-  caller.stop_challenge(riot_id, true, 0);
+  caller.stop_challenge();
+  caller.relay_payouts(riot_id, 0);
   caller.deposit_for_riot{
     coins: 1,
   }(riot_id);
@@ -446,6 +464,12 @@ fn should_revert_on_unsecure_start_call() {
 }
 
 
+#[test(should_revert)]
+fn should_revert_when_relaying_w_active_pool() {
+  let caller = abi(SimplePoolContract, CONTRACT_ID);
+  caller.relay_payouts(1, 0);
+}
+
 #[test]
 fn is_payouts_working() {
   let caller = abi(SimplePoolContract, CONTRACT_ID);
@@ -456,6 +480,7 @@ fn is_payouts_working() {
 
   assert_eq(caller.get_pool_backers(), 0);
 
-  caller.stop_challenge(riot_id, true, 0);
+  caller.stop_challenge();
+  caller.relay_payouts(riot_id, 0);
   assert_eq(caller.winner_riot_id(), riot_id);
 }

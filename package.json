@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "test": "npx fuels typegen -i ./out/debug/*-abi.json -o abi_types && vitest"
+  },
   "dependencies": {
     "fuels": "^0.101.3",
     "vitest": "^3.2.4"

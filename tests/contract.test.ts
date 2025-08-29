@@ -67,11 +67,10 @@ describe("Basic Pool Contract Tests", () => {
 
     // Stop Challenge
     contract.account = owner
-    const res = await contract.functions
-      .stop_challenge(winner_riot_id, true, 0)
-      .call()
+    await contract.functions.stop_challenge().call()
 
-    await res.waitForResult()
+    // Disburse rewards (relay payouts)
+    await contract.functions.relay_payouts(winner_riot_id, 0).call()
 
     // Check for ZERO TVL
     tvl = await contract.functions.get_pool_tvl().get()
